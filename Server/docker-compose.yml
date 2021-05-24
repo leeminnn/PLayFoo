@@ -1,0 +1,376 @@
+version: "3"
+
+volumes:
+  rabbitmq_data:
+  pgdata: 
+  kongadata:
+
+networks:
+  playfoo:
+    driver: bridge
+
+services:
+ 
+  ###################################
+  # User: The User simple microservice
+  ###################################
+  user:
+    build:
+      context: ./simple
+      dockerfile: user.Dockerfile
+    image: aarontanyien/user:1.0
+    restart: always
+    networks:
+      - playfoo
+    environment:
+      dbURL: mysql+mysqlconnector://is213@host.docker.internal:3306/user
+      PYTHONUNBUFFERED: 1
+    ports:
+    - "5000:5000"
+
+  ###################################
+  # Room: The Room simple microservice
+  ###################################
+  room:
+    build:
+      context: ./simple
+      dockerfile: room.Dockerfile
+    image: aarontanyien/room:1.0
+    restart: always
+    networks:
+      - playfoo
+    environment:
+      dbURL: mysql+mysqlconnector://is213@host.docker.internal:3306/room
+      PYTHONUNBUFFERED: 1
+    ports:
+    - "5001:5001"
+    
+
+  ###################################
+  # Game: The Game simple microservice
+  ###################################
+  game:
+    build:
+      context: ./simple
+      dockerfile: game.Dockerfile
+    image: aarontanyien/game:1.0
+    restart: always
+    networks:
+      - playfoo
+    environment:
+      PYTHONUNBUFFERED: 1
+    ports:
+    - "5002:5002"
+
+
+  ####################################
+  # RabbitMQ: The messaging broker   
+  ####################################
+  rabbitmq:
+    image: rabbitmq:3-management
+    hostname: playfoo-rabbit
+    restart: always
+    networks:
+      - playfoo
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes: 
+      - rabbitmq_data:/var/lib/rabbitmq
+      
+  #################################################
+  # Activity Log: The Activity Log simple microservice
+  #################################################
+  activity_log:
+    build:
+      context: ./simple
+      dockerfile: activity_log.Dockerfile
+    image: aarontanyien/activity_log:1.0
+    restart: always
+    networks:
+      - playfoo
+    depends_on:
+      - rabbitmq
+    environment:
+      rabbit_host: rabbitmq
+      rabbit_port: 5672
+      PYTHONUNBUFFERED: 1
+      dbURL: mysql+mysqlconnector://is213@host.docker.internal:3306/activity_log
+
+  ###################################
+  # Error: The Error simple microservice
+  ###################################
+  error:
+    build:
+      context: ./simple
+      dockerfile: error.Dockerfile
+    image: aarontanyien/error:1.0
+    restart: always
+    networks:
+      - playfoo
+    depends_on:
+      - rabbitmq
+    environment:
+      rabbit_host: rabbitmq
+      rabbit_port: 5672
+      PYTHONUNBUFFERED: 1
+      dbURL: mysql+mysqlconnector://is213@host.docker.internal:3306/error
+  
+  ##################################
+  # Message: The Message simple microservice
+  ##################################
+  message:
+    build:
+      context: ./simple
+      dockerfile: message.Dockerfile
+    image: aarontanyien/message:1.0
+    restart: always
+    networks:
+      - playfoo
+    environment:
+      rabbit_host: rabbitmq
+      rabbit_port: 5672
+      dbURL: mysql+mysqlconnector://is213@host.docker.internal:3306/message
+      PYTHONUNBUFFERED: 1
+
+  ##################################
+  # Message_Listener: The Message Listener simple microservice
+  ##################################
+  message_listener:
+    build:
+      context: ./simple
+      dockerfile: message_listener.Dockerfile
+    image: aarontanyien/message_listener:1.0
+    restart: always
+    networks:
+      - playfoo
+    environment:
+      rabbit_host: rabbitmq
+      rabbit_port: 5672
+      dbURL: mysql+mysqlconnector://is213@host.docker.internal:3306/message
+      PYTHONUNBUFFERED: 1
+    ports:
+      - "5003:5003"
+
+  ###############################################
+  # Create Room: The Create Room complex microservice
+  ###############################################
+  Create_Room:
+    build:
+      context: ./complex
+      dockerfile: Create_Room.Dockerfile
+    image: aarontanyien/create_room:1.0
+    restart: always
+    networks:
+      - playfoo
+    depends_on:
+      - room
+      - game
+      - activity_log
+      - error
+      - message
+      - rabbitmq
+    environment:
+      rabbit_host: rabbitmq
+      rabbit_port: 5672
+      user_URL: http://user:5000/user
+      room_URL: http://room:5001/room
+      game_URL: http://game:5002/game
+      PYTHONUNBUFFERED: 1
+    ports:
+      - "5100:5100"
+
+  ###############################################
+  # Join Room: The Join Room complex microservice
+  ###############################################
+  Join_Room:
+    build:
+      context: ./complex
+      dockerfile: Join_Room.Dockerfile
+    image: aarontanyien/join_room:1.0
+    restart: always
+    networks:
+      - playfoo
+    depends_on:
+      - room
+      - game
+      - activity_log
+      - error
+      - message
+      - rabbitmq
+    environment:
+      rabbit_host: rabbitmq
+      rabbit_port: 5672
+      user_URL: http://user:5000/user
+      room_URL: http://room:5001/room
+      game_URL: http://game:5002/game
+      PYTHONUNBUFFERED: 1
+    ports:
+      - "5101:5101"
+
+  ###############################################
+  # Leave Room: The Leave Room complex microservice
+  ###############################################
+  Leave_Room:
+    build:
+      context: ./complex
+      dockerfile: Leave_Room.Dockerfile
+    image: aarontanyien/leave_room:1.0
+    restart: always
+    networks:
+      - playfoo
+    depends_on:
+      - room
+      - activity_log
+      - error
+      - message
+      - rabbitmq
+    environment:
+      rabbit_host: rabbitmq
+      rabbit_port: 5672
+      user_URL: http://user:5000/user
+      room_URL: http://room:5001/room
+      PYTHONUNBUFFERED: 1
+    ports:
+      - "5102:5102"
+
+  ###############################################
+  # Send Message: The Send Message complex microservice
+  ###############################################
+  Send_Message:
+    build:
+      context: ./complex
+      dockerfile: Send_Message.Dockerfile
+    image: aarontanyien/send_message:1.0
+    restart: always
+    networks:
+      - playfoo
+    depends_on:
+      - room
+      - activity_log
+      - error
+      - message
+      - rabbitmq
+    environment:
+      rabbit_host: rabbitmq
+      rabbit_port: 5672
+      user_URL: http://user:5000/user
+      room_URL: http://room:5001/room 
+      PYTHONUNBUFFERED: 1
+    ports:
+      - "5103:5103"
+
+  #######################################
+  # Postgres: The database used by Kong
+  #######################################
+  kong-database:
+    image: postgres:9.6
+    restart: always
+    networks:
+      - playfoo
+    environment:
+      POSTGRES_DB: kong
+      POSTGRES_USER: kong
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "kong"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  #######################################
+  # Kong database migration
+  #######################################
+  kong-migration:
+    image: kong:2.0.4
+    command: "kong migrations bootstrap"
+    restart: on-failure
+    networks:
+      - playfoo
+    environment:
+      KONG_DATABASE: postgres
+      KONG_PG_HOST: kong-database
+      KONG_PG_USER: kong
+      KONG_PG_PASSWORD: password
+    depends_on:
+      - kong-database
+
+  #######################################
+  # Kong: The API Gateway
+  #######################################
+  kong:
+    image: kong:2.0.4
+    restart: always
+    networks:
+      - playfoo
+    environment:
+      KONG_DATABASE: postgres
+      KONG_PG_HOST: kong-database
+      KONG_PG_USER: kong
+      KONG_PG_PASSWORD: password
+      KONG_PROXY_LISTEN: 0.0.0.0:8000
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001
+    depends_on:
+      - kong-migration
+    ports:
+      - "8000:8000"
+  
+  #######################################
+  # Konga: Kong GUI
+  #######################################
+  konga:
+    image: pantsel/konga
+    restart: always
+    networks:
+      - playfoo
+    environment:
+      DB_ADAPTER: postgres
+      DB_HOST: kong-database
+      DB_USER: kong
+      DB_PASSWORD: password
+      DB_DATABASE: konga_db
+    depends_on:
+      - kong
+    ports:
+      - "1337:1337"
+    volumes:
+      - kongadata:/app/kongadata
+
+  # #######################################
+  # # MySQL & PHPMyAdmin: The primary database & interface
+  # #######################################
+  # mysql-database:
+  #   container_name: mysql-database
+  #   image: mysql:latest
+  #   command: --default-authentication-plugin=mysql_native_password
+  #   restart: always
+  #   networks:
+  #     - playfoo
+  #   environment:
+  #     MYSQL_USER: admin
+  #     MYSQL_ROOT_PASSWORD: admin
+  #     MYSQL_PASSWORD: admin
+  #   volumes:
+  #     - mysqldata:/var/lib/playfoo/data
+  #   ports:
+  #     - '3306:3306'
+  
+  # phpmyadmin:
+  #   container_name: phpmyadmin
+  #   image: phpmyadmin/phpmyadmin:latest
+  #   depends_on:
+  #     - mysql-database
+  #   ports:
+  #     - "8082:80"
+  #   networks:
+  #     - playfoo
+  #   environment:
+  #     MYSQL_USER: root
+  #     MYSQL_ROOT_PASSWORD: admin
+  #     PMA_HOST: mysql-database
+  #     # PMA_USER: root
+  #     # PMA_PASSWORD: admin
